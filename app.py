@@ -130,12 +130,32 @@ def verify_init_data(init_data: str) -> dict:
 # Price + round logic
 # ---------------------------------------------------------------------------
 
+_price_cache = {"price": None, "fetched_at": 0.0}
+PRICE_CACHE_TTL = 8  # seconds -- avoids hitting CoinGecko on every 5s frontend poll
+
+
 def fetch_btc_price() -> float:
-    resp = requests.get(
-        COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=10
-    )
-    resp.raise_for_status()
-    return resp.json()["bitcoin"]["usd"]
+    now = time.time()
+    if _price_cache["price"] is not None and (now - _price_cache["fetched_at"]) < PRICE_CACHE_TTL:
+        return _price_cache["price"]
+
+    try:
+        resp = requests.get(
+            COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=10
+        )
+        resp.raise_for_status()
+        price = resp.json()["bitcoin"]["usd"]
+        _price_cache["price"] = price
+        _price_cache["fetched_at"] = now
+        return price
+    except requests.RequestException:
+        # CoinGecko occasionally rate-limits or times out. Fall back to the
+        # last known price rather than crashing the request -- a few-second
+        # stale price is much better UX than an error screen.
+        if _price_cache["price"] is not None:
+            log.warning("Price fetch failed, serving cached price")
+            return _price_cache["price"]
+        raise
 
 
 def get_open_round(conn):
@@ -198,7 +218,7 @@ async def lifespan(app: FastAPI):
     with db() as conn:
         if get_open_round(conn) is None:
             open_new_round()
-    scheduler.add_job(resolve_open_round, "interval", seconds=15)
+    scheduler.add_job(resolve_open_round, "interval", seconds=20)
     scheduler.start()
     yield
     scheduler.shutdown()
