@@ -1,0 +1,5 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+apscheduler==3.10.4
+requests==2.32.3
+python-telegram-bot==21.4
