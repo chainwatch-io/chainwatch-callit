@@ -35,10 +35,11 @@ import logging
 from urllib.parse import parse_qsl
 from contextlib import asynccontextmanager
 
+import traceback
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -204,6 +205,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# TEMPORARY DEBUG HANDLER -- remove once the crash is diagnosed and fixed.
+# Surfaces the real Python error + traceback directly in the HTTP response
+# instead of a bare "Internal Server Error", since Railway's log UI can be
+# hard to navigate to find application-level tracebacks.
+@app.exception_handler(Exception)
+async def debug_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "traceback": traceback.format_exc()},
+    )
 
 
 # ---------------------------------------------------------------------------
