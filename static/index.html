@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BTC Higher/Lower</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0D1321;
+    --bg-raised: #141B2E;
+    --amber: #F2C14E;
+    --mint: #3ECF8E;
+    --coral: #FF6B6B;
+    --text: #E8ECF1;
+    --muted: #5B6B8C;
+    --border: #202A42;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: inherit; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 32px;
+    min-height: 100%;
+  }
+  .wrap { width: 100%; max-width: 420px; }
+
+  .eyebrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 4px;
+    letter-spacing: 0.02em;
+  }
+  h1 {
+    text-align: center;
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 20px;
+    color: var(--text);
+  }
+
+  .ticker-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 20px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .price {
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 42px;
+    color: var(--amber);
+    line-height: 1.1;
+    transition: color 0.3s;
+  }
+  .price.tick-up { color: var(--mint); }
+  .price.tick-down { color: var(--coral); }
+  .price-label {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 6px;
+  }
+  .timer {
+    font-family: 'Space Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    margin-top: 18px;
+    color: var(--text);
+  }
+  .timer-label {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .choices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  button.choice {
+    border: none;
+    border-radius: 16px;
+    padding: 20px 12px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 17px;
+    cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+    color: #0D1321;
+  }
+  button.choice:active { transform: scale(0.97); }
+  button.choice:disabled { opacity: 0.45; cursor: default; transform: none; }
+  button.choice.higher { background: var(--mint); }
+  button.choice.lower { background: var(--coral); }
+  button.choice .arrow { display: block; font-size: 22px; margin-bottom: 2px; }
+
+  .status-line {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+    min-height: 18px;
+  }
+  .status-line.locked-in { color: var(--amber); }
+
+  .stats-row {
+    display: flex;
+    justify-content: space-around;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 8px;
+    margin-bottom: 20px;
+  }
+  .stat { text-align: center; }
+  .stat-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .stat-label {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .board-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 10px;
+    color: var(--text);
+  }
+  .board-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .board-row:last-child { border-bottom: none; }
+  .board-rank { color: var(--muted); width: 24px; display: inline-block; }
+  .board-name { color: var(--text); }
+  .board-pts { font-family: 'Space Mono', monospace; color: var(--amber); }
+
+  .empty-board {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 12px 0;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">BTC / USD — next hour</div>
+  <h1>Will Bitcoin go higher or lower?</h1>
+
+  <div class="ticker-card">
+    <div class="price" id="price">--</div>
+    <div class="price-label">live price, resets each round</div>
+    <div class="timer" id="timer">--:--</div>
+    <div class="timer-label">time left this round</div>
+  </div>
+
+  <div class="choices">
+    <button class="choice higher" id="btn-higher">
+      <span class="arrow">&#8593;</span>Higher
+    </button>
+    <button class="choice lower" id="btn-lower">
+      <span class="arrow">&#8595;</span>Lower
+    </button>
+  </div>
+
+  <div class="status-line" id="status">Loading round...</div>
+
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-value" id="points">0</div>
+      <div class="stat-label">points</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="streak">0</div>
+      <div class="stat-label">streak</div>
+    </div>
+  </div>
+
+  <div class="board-title">Leaderboard</div>
+  <div id="leaderboard"><div class="empty-board">Loading...</div></div>
+</div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+// Fallback init data for local testing outside Telegram (backend will reject
+// this in production since it won't carry a valid signature -- that's expected).
+const initData = (tg && tg.initData) ? tg.initData : "";
+
+let lastPrice = null;
+let pollTimer = null;
+
+function fmtPrice(p) {
+  return '$' + p.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function fmtTime(seconds) {
+  if (seconds < 0) seconds = 0;
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+async function loadRound() {
+  try {
+    const res = await fetch('/api/round?init_data=' + encodeURIComponent(initData));
+    if (!res.ok) throw new Error('round fetch failed');
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    document.getElementById('status').textContent = "Couldn't load round data. Retrying...";
+  }
+}
+
+function render(data) {
+  const priceEl = document.getElementById('price');
+  const newPrice = data.current_price;
+  if (lastPrice !== null && newPrice !== lastPrice) {
+    priceEl.classList.remove('tick-up', 'tick-down');
+    void priceEl.offsetWidth; // restart animation
+    priceEl.classList.add(newPrice > lastPrice ? 'tick-up' : 'tick-down');
+  }
+  lastPrice = newPrice;
+  priceEl.textContent = fmtPrice(newPrice);
+
+  const remaining = data.end_time ? (data.end_time - (Date.now() / 1000)) : 0;
+  document.getElementById('timer').textContent = fmtTime(remaining);
+  document.getElementById('points').textContent = data.points;
+  document.getElementById('streak').textContent = data.streak;
+
+  const higherBtn = document.getElementById('btn-higher');
+  const lowerBtn = document.getElementById('btn-lower');
+  const status = document.getElementById('status');
+
+  if (data.my_prediction) {
+    higherBtn.disabled = true;
+    lowerBtn.disabled = true;
+    status.textContent = `Locked in: ${data.my_prediction.toUpperCase()} — result at round end`;
+    status.classList.add('locked-in');
+  } else {
+    higherBtn.disabled = false;
+    lowerBtn.disabled = false;
+    status.textContent = 'Pick one — one free guess per round';
+    status.classList.remove('locked-in');
+  }
+
+  renderLeaderboard(data.leaderboard);
+}
+
+function renderLeaderboard(rows) {
+  const el = document.getElementById('leaderboard');
+  if (!rows || rows.length === 0) {
+    el.innerHTML = '<div class="empty-board">No players yet. Be the first!</div>';
+    return;
+  }
+  el.innerHTML = rows.map((r, i) => `
+    <div class="board-row">
+      <span><span class="board-rank">${i + 1}</span><span class="board-name">${escapeHtml(r.username || 'Player')}</span></span>
+      <span class="board-pts">${r.points}</span>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function submitChoice(choice) {
+  document.getElementById('btn-higher').disabled = true;
+  document.getElementById('btn-lower').disabled = true;
+  try {
+    const res = await fetch('/api/predict', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({init_data: initData, choice})
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      document.getElementById('status').textContent = err.detail || 'Could not submit. Try again.';
+    }
+    if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  } catch (e) {
+    document.getElementById('status').textContent = 'Network error. Try again.';
+  }
+  loadRound();
+}
+
+document.getElementById('btn-higher').addEventListener('click', () => submitChoice('higher'));
+document.getElementById('btn-lower').addEventListener('click', () => submitChoice('lower'));
+
+loadRound();
+pollTimer = setInterval(loadRound, 5000);
+</script>
+</body>
+</html>
