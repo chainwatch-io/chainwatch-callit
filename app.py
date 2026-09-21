@@ -131,7 +131,9 @@ def verify_init_data(init_data: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _price_cache = {"price": None, "fetched_at": 0.0}
-PRICE_CACHE_TTL = 8  # seconds -- avoids hitting CoinGecko on every 5s frontend poll
+PRICE_CACHE_TTL = 30  # seconds -- CoinGecko's free tier rate-limits aggressively,
+                       # and a game with hour-long rounds doesn't need price data
+                       # any fresher than this.
 
 
 def fetch_btc_price() -> float:
@@ -139,23 +141,30 @@ def fetch_btc_price() -> float:
     if _price_cache["price"] is not None and (now - _price_cache["fetched_at"]) < PRICE_CACHE_TTL:
         return _price_cache["price"]
 
-    try:
-        resp = requests.get(
-            COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=10
-        )
-        resp.raise_for_status()
-        price = resp.json()["bitcoin"]["usd"]
-        _price_cache["price"] = price
-        _price_cache["fetched_at"] = now
-        return price
-    except requests.RequestException:
-        # CoinGecko occasionally rate-limits or times out. Fall back to the
-        # last known price rather than crashing the request -- a few-second
-        # stale price is much better UX than an error screen.
-        if _price_cache["price"] is not None:
-            log.warning("Price fetch failed, serving cached price")
-            return _price_cache["price"]
-        raise
+    for attempt in range(2):
+        try:
+            resp = requests.get(
+                COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=10
+            )
+            resp.raise_for_status()
+            price = resp.json()["bitcoin"]["usd"]
+            _price_cache["price"] = price
+            _price_cache["fetched_at"] = now
+            return price
+        except requests.RequestException as e:
+            log.warning("Price fetch attempt %d failed: %s", attempt + 1, e)
+            if attempt == 0:
+                time.sleep(2)  # brief pause, then one retry (helps with transient 429s)
+
+    # Both attempts failed. Fall back to the last known price rather than
+    # crashing the request -- a stale price is far better UX than an error.
+    if _price_cache["price"] is not None:
+        log.warning("Serving stale cached price after repeated fetch failures")
+        return _price_cache["price"]
+
+    # Truly no price available yet (e.g. very first request after cold
+    # start, and CoinGecko happened to be rate-limiting right then).
+    raise HTTPException(503, "Price data temporarily unavailable, try again shortly")
 
 
 def get_open_round(conn):
@@ -163,7 +172,11 @@ def get_open_round(conn):
 
 
 def open_new_round():
-    price = fetch_btc_price()
+    try:
+        price = fetch_btc_price()
+    except Exception as e:
+        log.warning("Could not open new round, price unavailable: %s", e)
+        return
     now = time.time()
     with db() as conn:
         conn.execute(
@@ -183,7 +196,11 @@ def resolve_open_round():
         if time.time() < rnd["end_time"]:
             return  # not time yet
 
-        end_price = fetch_btc_price()
+        try:
+            end_price = fetch_btc_price()
+        except Exception as e:
+            log.warning("Could not resolve round %s yet, price unavailable: %s", rnd["round_id"], e)
+            return  # try again on the next scheduled tick
         direction = "higher" if end_price > rnd["start_price"] else "lower"
 
         preds = conn.execute(
@@ -217,7 +234,12 @@ async def lifespan(app: FastAPI):
     init_db()
     with db() as conn:
         if get_open_round(conn) is None:
-            open_new_round()
+            try:
+                open_new_round()
+            except Exception as e:
+                log.warning("Could not open initial round at startup: %s", e)
+                # A round will be opened automatically once resolve_open_round's
+                # periodic job runs and finds no open round -- app still starts.
     scheduler.add_job(resolve_open_round, "interval", seconds=20)
     scheduler.start()
     yield
