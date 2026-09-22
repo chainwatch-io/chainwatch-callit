@@ -166,6 +166,7 @@ def fetch_btc_price() -> float:
             price = source_fn()
             _price_cache["price"] = price
             _price_cache["fetched_at"] = now
+            log.info("Price fetched from %s: $%s", source_name, price)
             return price
         except requests.RequestException as e:
             log.warning("%s price fetch failed: %s", source_name, e)
