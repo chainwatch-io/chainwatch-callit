@@ -48,6 +48,11 @@ log = logging.getLogger(__name__)
 DB_PATH = os.environ.get("PREDICT_DB_PATH", "predict.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 CHANNEL_ID = os.environ.get("CHANNEL_ID", "")  # e.g. "@chainwatch_io" -- optional, enables auto-posted round results
+# The t.me Direct Link Mini App URL, e.g. "https://t.me/ChainWatchGameBot/callit".
+# NOT the same as the Railway backend URL -- this is a special deep link
+# Telegram itself resolves to open the Mini App, and it's the only kind of
+# link that works as a button on a CHANNEL post (see setup notes in README).
+MINI_APP_DEEPLINK = os.environ.get("MINI_APP_DEEPLINK", "")
 ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "2"))
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
@@ -187,13 +192,23 @@ def get_open_round(conn):
 
 def send_channel_message(text: str):
     """Post a message to the configured Telegram channel using the raw Bot
-    API (no need to run a separate bot process for this one-way notification)."""
+    API (no need to run a separate bot process for this one-way notification).
+    Attaches a one-tap "Play Now" button that opens the Mini App, if
+    MINI_APP_DEEPLINK is configured. This MUST be a plain url button using
+    the t.me Direct Link Mini App format (https://t.me/Bot/shortname) --
+    Telegram's web_app button type is restricted to private chats and does
+    not work on channel posts."""
     if not CHANNEL_ID or not BOT_TOKEN:
         return
+    payload = {"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"}
+    if MINI_APP_DEEPLINK:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": "🎯 Play Now", "url": MINI_APP_DEEPLINK}]]
+        }
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"},
+            json=payload,
             timeout=10,
         )
     except requests.RequestException as e:
