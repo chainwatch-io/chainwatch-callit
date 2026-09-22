@@ -217,6 +217,9 @@ const initData = (tg && tg.initData) ? tg.initData : "";
 
 let lastPrice = null;
 let pollTimer = null;
+let tickTimer = null;
+let fastPollTimer = null;
+let currentEndTime = null;
 
 function fmtPrice(p) {
   return '$' + p.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -227,6 +230,33 @@ function fmtTime(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+// Ticks the displayed countdown every second using the last known end_time,
+// independent of the 8s data poll -- keeps the timer visually smooth.
+function tickTimerDisplay() {
+  if (currentEndTime === null) return;
+  const remaining = currentEndTime - (Date.now() / 1000);
+  document.getElementById('timer').textContent = fmtTime(remaining);
+
+  if (remaining <= 0) {
+    startFastPolling();
+  }
+}
+
+// Once the countdown hits zero, poll quickly (every 1.5s) until the round
+// actually resolves server-side, instead of waiting for the normal 8s poll
+// -- this is what removes the lag you saw before points/buttons updated.
+function startFastPolling() {
+  if (fastPollTimer) return; // already fast-polling
+  fastPollTimer = setInterval(loadRound, 1500);
+}
+
+function stopFastPolling() {
+  if (fastPollTimer) {
+    clearInterval(fastPollTimer);
+    fastPollTimer = null;
+  }
 }
 
 async function loadRound() {
@@ -251,8 +281,16 @@ function render(data) {
   lastPrice = newPrice;
   priceEl.textContent = fmtPrice(newPrice);
 
-  const remaining = data.end_time ? (data.end_time - (Date.now() / 1000)) : 0;
-  document.getElementById('timer').textContent = fmtTime(remaining);
+  const previousEndTime = currentEndTime;
+  currentEndTime = data.end_time;
+  tickTimerDisplay();
+
+  // A new round started (end_time moved forward) -- the previous round
+  // finished resolving, so we can stop fast-polling now.
+  if (previousEndTime !== null && data.end_time !== previousEndTime && data.end_time > Date.now() / 1000) {
+    stopFastPolling();
+  }
+
   document.getElementById('points').textContent = data.points;
   document.getElementById('streak').textContent = data.streak;
 
@@ -318,6 +356,7 @@ document.getElementById('btn-lower').addEventListener('click', () => submitChoic
 
 loadRound();
 pollTimer = setInterval(loadRound, 8000);
+tickTimer = setInterval(tickTimerDisplay, 1000);
 </script>
 </body>
 </html>
