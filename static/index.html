@@ -191,6 +191,7 @@
   </div>
 
   <div class="status-line" id="status">Loading round...</div>
+  <div class="status-line" id="entries-count" style="margin-top:-14px;"></div>
 
   <div class="stats-row">
     <div class="stat">
@@ -293,6 +294,13 @@ function render(data) {
 
   document.getElementById('points').textContent = data.points;
   document.getElementById('streak').textContent = data.streak;
+
+  const countEl = document.getElementById('entries-count');
+  if (data.entries_count > 0) {
+    countEl.textContent = `🔥 ${data.entries_count} ${data.entries_count === 1 ? 'person has' : 'people have'} called this round`;
+  } else {
+    countEl.textContent = '';
+  }
 
   const higherBtn = document.getElementById('btn-higher');
   const lowerBtn = document.getElementById('btn-lower');
