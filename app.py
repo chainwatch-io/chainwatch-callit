@@ -47,7 +47,8 @@ log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get("PREDICT_DB_PATH", "predict.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "2"))
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "")  # e.g. "@chainwatch_io" -- optional, enables auto-posted round results
+ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "60"))
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 
@@ -184,6 +185,21 @@ def get_open_round(conn):
     return conn.execute("SELECT * FROM rounds WHERE status='open' ORDER BY round_id DESC LIMIT 1").fetchone()
 
 
+def send_channel_message(text: str):
+    """Post a message to the configured Telegram channel using the raw Bot
+    API (no need to run a separate bot process for this one-way notification)."""
+    if not CHANNEL_ID or not BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": CHANNEL_ID, "text": text, "parse_mode": "Markdown"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        log.warning("Failed to post channel message: %s", e)
+
+
 def open_new_round():
     try:
         price = fetch_btc_price()
@@ -219,8 +235,12 @@ def resolve_open_round():
         preds = conn.execute(
             "SELECT * FROM predictions WHERE round_id=?", (rnd["round_id"],)
         ).fetchall()
+        total_players = len(preds)
+        correct_count = 0
         for p in preds:
             correct = 1 if p["choice"] == direction else 0
+            if correct:
+                correct_count += 1
             conn.execute(
                 "UPDATE predictions SET correct=? WHERE round_id=? AND user_id=?",
                 (correct, rnd["round_id"], p["user_id"]),
@@ -238,7 +258,30 @@ def resolve_open_round():
             (end_price, rnd["round_id"]),
         )
         conn.commit()
+
+        leader = conn.execute(
+            "SELECT username, points FROM users ORDER BY points DESC LIMIT 1"
+        ).fetchone()
+
     log.info("Resolved round %s: %s", rnd["round_id"], direction)
+
+    price_delta = end_price - rnd["start_price"]
+    arrow = "📈" if direction == "higher" else "📉"
+    lines = [
+        f"{arrow} *Round #{rnd['round_id']} result: {direction.upper()}*",
+        f"${rnd['start_price']:,.2f} → ${end_price:,.2f} ({price_delta:+,.2f})",
+        "",
+    ]
+    if total_players > 0:
+        lines.append(f"👥 {total_players} players called it — {correct_count} got it right")
+    else:
+        lines.append("👥 No one played this round — be the first next round!")
+    if leader:
+        lines.append(f"🏆 Leaderboard leader: {leader['username']} ({leader['points']} pts)")
+    lines.append("")
+    lines.append("Play the next round now ⬆️")
+
+    send_channel_message("\n".join(lines))
     open_new_round()
 
 
@@ -303,6 +346,12 @@ def api_round(init_data: str):
             "SELECT username, points FROM users ORDER BY points DESC LIMIT 10"
         ).fetchall()
 
+        entries_count = 0
+        if rnd:
+            entries_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM predictions WHERE round_id=?", (rnd["round_id"],)
+            ).fetchone()["c"]
+
     return {
         "round_id": rnd["round_id"] if rnd else None,
         "start_price": rnd["start_price"] if rnd else None,
@@ -311,6 +360,7 @@ def api_round(init_data: str):
         "my_prediction": my_pred,
         "points": points,
         "streak": streak,
+        "entries_count": entries_count,
         "leaderboard": [dict(r) for r in leaderboard],
     }
 
