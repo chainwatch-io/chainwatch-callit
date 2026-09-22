@@ -253,7 +253,7 @@ async def lifespan(app: FastAPI):
                 log.warning("Could not open initial round at startup: %s", e)
                 # A round will be opened automatically once resolve_open_round's
                 # periodic job runs and finds no open round -- app still starts.
-    scheduler.add_job(resolve_open_round, "interval", seconds=20)
+    scheduler.add_job(resolve_open_round, "interval", seconds=5)
     scheduler.start()
     yield
     scheduler.shutdown()
