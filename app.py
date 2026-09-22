@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get("PREDICT_DB_PATH", "predict.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "60"))
+ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "2"))
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 
