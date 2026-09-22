@@ -49,6 +49,7 @@ DB_PATH = os.environ.get("PREDICT_DB_PATH", "predict.db")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "60"))
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 
 scheduler = AsyncIOScheduler()
 
@@ -136,34 +137,45 @@ PRICE_CACHE_TTL = 30  # seconds -- CoinGecko's free tier rate-limits aggressivel
                        # any fresher than this.
 
 
+def _fetch_from_coingecko() -> float:
+    resp = requests.get(
+        COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=8
+    )
+    resp.raise_for_status()
+    return resp.json()["bitcoin"]["usd"]
+
+
+def _fetch_from_binance() -> float:
+    resp = requests.get(BINANCE_URL, params={"symbol": "BTCUSDT"}, timeout=8)
+    resp.raise_for_status()
+    return float(resp.json()["price"])
+
+
 def fetch_btc_price() -> float:
     now = time.time()
     if _price_cache["price"] is not None and (now - _price_cache["fetched_at"]) < PRICE_CACHE_TTL:
         return _price_cache["price"]
 
-    for attempt in range(2):
+    # Try CoinGecko first, then fall back to Binance's public ticker if
+    # CoinGecko is rate-limiting us (common on shared cloud-host IPs, which
+    # is exactly what's happening on Railway). Binance's public market-data
+    # endpoint has generous, key-free rate limits and is a reliable second
+    # source for the same underlying price.
+    for source_name, source_fn in [("CoinGecko", _fetch_from_coingecko), ("Binance", _fetch_from_binance)]:
         try:
-            resp = requests.get(
-                COINGECKO_URL, params={"ids": "bitcoin", "vs_currencies": "usd"}, timeout=10
-            )
-            resp.raise_for_status()
-            price = resp.json()["bitcoin"]["usd"]
+            price = source_fn()
             _price_cache["price"] = price
             _price_cache["fetched_at"] = now
             return price
         except requests.RequestException as e:
-            log.warning("Price fetch attempt %d failed: %s", attempt + 1, e)
-            if attempt == 0:
-                time.sleep(2)  # brief pause, then one retry (helps with transient 429s)
+            log.warning("%s price fetch failed: %s", source_name, e)
 
-    # Both attempts failed. Fall back to the last known price rather than
+    # Both sources failed. Fall back to the last known price rather than
     # crashing the request -- a stale price is far better UX than an error.
     if _price_cache["price"] is not None:
-        log.warning("Serving stale cached price after repeated fetch failures")
+        log.warning("Serving stale cached price after both sources failed")
         return _price_cache["price"]
 
-    # Truly no price available yet (e.g. very first request after cold
-    # start, and CoinGecko happened to be rate-limiting right then).
     raise HTTPException(503, "Price data temporarily unavailable, try again shortly")
 
 
