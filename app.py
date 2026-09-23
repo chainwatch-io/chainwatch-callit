@@ -53,7 +53,7 @@ CHANNEL_ID = os.environ.get("CHANNEL_ID", "")  # e.g. "@chainwatch_io" -- option
 # Telegram itself resolves to open the Mini App, and it's the only kind of
 # link that works as a button on a CHANNEL post (see setup notes in README).
 MINI_APP_DEEPLINK = os.environ.get("MINI_APP_DEEPLINK", "")
-ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "1"))
+ROUND_MINUTES = float(os.environ.get("ROUND_MINUTES", "2"))
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 
