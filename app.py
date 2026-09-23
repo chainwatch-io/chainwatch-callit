@@ -67,6 +67,12 @@ def db():
 
 
 def init_db():
+    abs_path = os.path.abspath(DB_PATH)
+    dir_path = os.path.dirname(abs_path) or "."
+    log.info(
+        "DB_PATH resolved to: %s (absolute: %s, directory exists: %s, directory writable: %s)",
+        DB_PATH, abs_path, os.path.isdir(dir_path), os.access(dir_path, os.W_OK),
+    )
     with db() as conn:
         conn.executescript(
             """
